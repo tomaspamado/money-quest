@@ -67,14 +67,16 @@ const range = (from, to, step) => Array.from({ length: Math.floor((to - from) / 
 export const NICE_NUMBERS = [...range(10000, 50000, 5000), ...range(60000, 100000, 10000), ...range(125000, 250000, 25000), ...range(300000, 500000, 50000)];
 const nearestNice = (v) => NICE_NUMBERS.reduce((best, n) => (Math.abs(Math.log(n / v)) < Math.abs(Math.log(best / v)) ? n : best), NICE_NUMBERS[0]);
 
-/** The saved plan (workbook SETTINGS) read from this device; null when nothing is saved or in tests. */
+/** The plan (monthly contribution and yearly return) from parsed workbook settings; null when unknown. */
+export function paceFrom(P) {
+  if (!P) return null;
+  const monthly = Number(P.monthly), annual = Number(P.annualReturn);
+  return monthly > 0 || annual > 0 ? { monthly: monthly || 0, annual: annual || 0 } : null;
+}
+
+/** The saved plan read from this device; null when nothing is saved or in tests. */
 export function savedPace() {
-  try {
-    const P = loadData()?.settings?.projection;
-    if (!P) return null;
-    const monthly = Number(P.monthly), annual = Number(P.annualReturn);
-    return monthly > 0 || annual > 0 ? { monthly: monthly || 0, annual: annual || 0 } : null;
-  } catch { return null; }
+  try { return paceFrom(loadData()?.settings?.projection); } catch { return null; }
 }
 
 /** Milestones roughly `stepMonths` apart on the plan, snapped to good-looking numbers, starting at `start`. */
