@@ -46,7 +46,7 @@ export function costOfWaiting({ pv, monthly, annual, horizon, delays = [1, 5, 10
 }
 
 /** Quest milestones: union of standard nodes and the workbook's own milestone goals. */
-export const STANDARD_MILESTONES = [25000, 50000, 100000, 250000, 500000, 1000000];
+export const STANDARD_MILESTONES = [10000, 50000, 100000, 250000, 500000, 1000000];
 export function milestoneGoals(excelMilestones = []) {
   const set = new Set(STANDARD_MILESTONES);
   for (const m of excelMilestones) if (m.goal > 0) set.add(m.goal);
