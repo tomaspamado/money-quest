@@ -1,0 +1,12 @@
+# Never commit personal data
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+data/
+.env
+.env.*
+
+# Tooling
+node_modules/
+.DS_Store
