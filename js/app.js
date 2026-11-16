@@ -3,7 +3,7 @@ import { parseWorkbook, parseLooseNumber } from './parse.js';
 import { labelKey, monthDiff } from './dates.js';
 import { fmtEur, fmtEurSigned, fmtEurCompact, fmtPct, fmtSignedPct, fmtNumber, fmtYears, fmtMonths, fmtXP } from './format.js';
 import { computeGame, applyUploadToChallenges, nextBadge, XP, xpForLevel, LEVEL_TITLES } from './game.js';
-import { yearsToGoal, dateAfterYears, ageAtKey, costOfWaiting, milestoneGoals } from './projection.js';
+import { yearsToGoal, dateAfterYears, ageAtKey, costOfWaiting, milestoneGoals, LADDER_START } from './projection.js';
 import { lineChart, stackedBars, sparkline, bindCharts, dataTable } from './charts.js';
 import { icon } from './icons.js';
 import { loadData, loadSaved, saveAll, resetAll, emptySaved } from './store.js';
@@ -437,13 +437,19 @@ function questNodes() {
     } else {
       years = yearsToGoal({ goal, pv: I.pv, monthly: I.monthly, annual: I.annual }); when = dateAfterYears(years); age = ageAtKey(I.birth, when); source = 'app';
     }
-    return { goal, years, when, age, source, reached: I.pv >= goal };
+    // The first milestone is the starting line of the quest, so it counts as reached; progress starts from there.
+    return { goal, years, when, age, source, start: goal <= LADDER_START, reached: goal <= LADDER_START || I.pv >= goal };
   });
 }
 function viewQuest() {
   if (!S.data) return `<div class="view-inner"><div class="topbar"><h1>Quest</h1></div>${emptyState()}</div>`;
   const body = S.sub.quest === 'map' ? questMap() : rewards();
   return `<div class="view-inner"><div class="topbar"><h1>Quest</h1></div>${seg('quest', [['map', 'Map'], ['rewards', 'Rewards']])}<div class="stack sub-body" style="gap:var(--sp-4)">${body}</div></div>`;
+}
+/** Progress inside the current step: from the milestone before it to this one (never from zero). */
+function stepProgress(nodes, i, pv) {
+  const from = nodes[i - 1]?.goal ?? 0, to = nodes[i].goal;
+  return Math.max(0, Math.min(1, (pv - from) / (to - from)));
 }
 function questMap() {
   const I = projInputs(), nodes = questNodes();
@@ -483,8 +489,8 @@ function questMap() {
           return `<div class="node ${state}${j % 2 ? ' right' : ''}" style="height:${nodeH}px">
             <div class="node-dot${state === 'current' ? ' shine' : ''}">${icon(state === 'done' ? 'check' : 'flag', 24)}</div>
             <div class="node-body"><div class="node-goal">${esc(fmtEur(n.goal))}</div>
-            <div class="node-when">${state === 'done' ? 'Reached' : n.when ? `~${esc(labelKey(n.when))}${n.age != null ? `, age ~${n.age}` : ''}` : 'Not reached with these numbers'}</div>
-            ${state === 'current' ? `<div class="tiny">${esc(fmtPct(I.pv / n.goal, 0))} of the way</div>` : ''}</div>
+            <div class="node-when">${state === 'done' ? (n.start ? 'Starting line' : 'Reached') : n.when ? `~${esc(labelKey(n.when))}${n.age != null ? `, age ~${n.age}` : ''}` : 'Not reached with these numbers'}</div>
+            ${state === 'current' ? `<div class="tiny">${esc(fmtPct(stepProgress(nodes, n.i, I.pv), 0))} of the way from ${esc(fmtEurCompact(nodes[n.i - 1]?.goal ?? 0))}</div>` : ''}</div>
           </div>`;
         }).join('')}
       </div>
