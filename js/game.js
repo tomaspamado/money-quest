@@ -2,6 +2,7 @@
 // No timers, no hidden state: same inputs -> same outputs.
 import { addMonthsKey, monthDiff } from './dates.js';
 import { fmtEur, fmtPct, fmtMonths } from './format.js';
+import { milestoneGoals, paceFrom, LADDER_START } from './projection.js';
 
 export const XP = { perScorePoint: 100, beatMarket: 50, savingsTarget: 50, emergencyReady: 100, challenge: 75 };
 export const LEVEL_BASE = 300;
@@ -120,8 +121,9 @@ export function badges(data, facts, T, ctx) {
     unlockedKey: firstKey(facts, (f) => f.nw != null && f.nw >= amount),
     progress: Math.min(1, (last.nw ?? 0) / amount), progressText: `${fmtEur(last.nw ?? 0)} of ${fmtEur(amount)}`,
   });
+  const short = (amount) => (amount >= 1e6 ? `${amount / 1e6}M` : `${amount / 1000}k`);
   const questBadge = (amount) => ({
-    id: `quest-${amount / 1000}k`, icon: 'flag', title: `Quest: ${amount / 1000}k invested`,
+    id: `quest-${short(amount)}`, icon: 'flag', title: `Quest: ${short(amount)} invested`,
     condition: `Invested assets reach ${fmtEur(amount)}`,
     unlockedKey: firstKey(facts, (f) => f.invested != null && f.invested >= amount),
     progress: Math.min(1, (last.invested ?? 0) / amount), progressText: `${fmtEur(last.invested ?? 0)} of ${fmtEur(amount)}`,
@@ -150,7 +152,8 @@ export function badges(data, facts, T, ctx) {
       unlockedKey: firstKey(facts, (f) => f.diversified), progress: facts.some((f) => f.diversified) ? 1 : 0, progressText: 'Not yet' },
     { id: 'comeback', icon: 'bolt', title: 'Comeback', condition: 'Score up 2 or more points on the month before',
       unlockedKey: firstKey(facts, (f) => f.comeback), progress: facts.some((f) => f.comeback) ? 1 : 0, progressText: 'Not yet' },
-    questBadge(25000), questBadge(50000),
+    // One badge for every milestone on the quest map. The starting line (10 000) is where the quest begins, so it has none.
+    ...milestoneGoals(data.dashboard?.milestones ?? [], paceFrom(data.settings?.projection)).filter((m) => m > LADDER_START).map(questBadge),
     { id: 'challenger', icon: 'check', title: 'Challenger', condition: 'Complete 3 monthly challenges',
       unlockedDate: doneChallenges.length >= 3 ? doneChallenges[2].evaluatedAt : null,
       progress: Math.min(1, doneChallenges.length / 3), progressText: `${Math.min(doneChallenges.length, 3)} of 3 challenges` },
