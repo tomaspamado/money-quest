@@ -1,5 +1,5 @@
 // Offline cache. Cache-first for the app shell; bump VERSION on every release.
-const VERSION = 'mq-v1.0.5';
+const VERSION = 'mq-v1.0.6';
 const PRECACHE = [
   './', './index.html', './styles.css', './manifest.webmanifest',
   './js/app.js', './js/parse.js', './js/dates.js', './js/format.js', './js/game.js', './js/projection.js',

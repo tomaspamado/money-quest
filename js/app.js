@@ -227,16 +227,16 @@ function viewWealth() {
   } else {
     const idx = (getter) => { let v = 100; return ms.map((m, i) => { const r = getter(m); if (i === 0) return 100; if (r == null) return null; v = v * (1 + r); return v; }); };
     const series = [
-      { name: 'You (monthly change)', values: idx((m) => m.me), color: 'var(--s1)' },
+      { name: 'Your investments', values: idx((m) => m.ret), color: 'var(--s1)' },
       { name: 'S&P 500', values: idx((m) => m.sp), color: 'var(--s2)' },
     ];
-    const beats = ms.filter((m) => m.me != null && m.sp != null && m.me > m.sp).length;
-    const comparable = ms.filter((m) => m.me != null && m.sp != null).length;
+    const beats = ms.filter((m) => m.ret != null && m.sp != null && m.ret > m.sp).length;
+    const comparable = ms.filter((m) => m.ret != null && m.sp != null).length;
     chart = `<h2>You against the S&P 500</h2>
-      <p class="small muted" style="margin-bottom:var(--sp-3)">Both start at 100 in ${esc(labelKey(F.key))}. Your line uses the Me % column, which includes money you added, so it is not a pure investment return. You beat the index in ${beats} of ${comparable} months.</p>
+      <p class="small muted" style="margin-bottom:var(--sp-3)">Both start at 100 in ${esc(labelKey(F.key))}. Your line is the return of Trading212, Stake and Robinhood only, without the money you added that month (the "→ Invest" value in BASE). You beat the index in ${beats} of ${comparable} months${comparable < ms.length - 1 ? `; months without a "→ Invest" value are left out` : ''}.</p>
       ${lineChart({ id: 'vs', keys: ks, series, w, fmt: (v) => fmtNumber(v, 1), axisFmt: (v) => fmtNumber(v, 0), title: 'Growth index, you against the S&P 500', endLabel: false })}
       ${legend(series, 'line')}
-      ${accordion('wealth-vs-table', 'Show monthly changes', dataTable({ keys: ks, series: [{ name: 'You', values: ms.map((m) => m.me) }, { name: 'S&P 500', values: ms.map((m) => m.sp) }], fmt: (v) => fmtSignedPct(v) }))}`;
+      ${accordion('wealth-vs-table', 'Show monthly changes', dataTable({ keys: ks, series: [{ name: 'Your investments', values: ms.map((m) => m.ret) }, { name: 'S&P 500', values: ms.map((m) => m.sp) }], fmt: (v) => fmtSignedPct(v) }))}`;
   }
   const mk = pageMonth('wealth'), m = monthAt(mk);
   const groups = GROUP_NAMES.map((g, i) => ({ name: g, value: m.groups[g] ?? 0, color: SERIES[i] })).filter((g) => g.value > 0.005);
@@ -419,7 +419,7 @@ function viewSpend() {
 function projInputs() {
   const P = S.data.settings.projection;
   return {
-    pv: P.invested ?? latest().invested ?? 0,
+    pv: latest().nw ?? 0,   // the quest is on net worth
     monthly: S.whatIf?.monthly ?? P.monthly ?? 0,
     annual: S.whatIf?.annual ?? P.annualReturn ?? 0.07,
     horizon: P.years ?? 30,
@@ -427,12 +427,14 @@ function projInputs() {
     birth: P.birth,
   };
 }
+const P_IS_NW = false;   // the workbook's Milestones table projects invested money; the map projects net worth
 function questNodes() {
   const I = projInputs(), excel = S.data.dashboard.milestones;
   return milestoneGoals(excel).map((goal) => {
     const ex = excel.find((m) => m.goal === goal);
     let years, when, age, source;
-    if (!S.whatIf && ex && ex.years != null) {
+    // The Excel's own years and dates are worked out from invested money, so they are used only when they agree with net worth.
+    if (!S.whatIf && ex && ex.years != null && P_IS_NW) {
       years = ex.years; when = ex.date ? `${ex.date.y}-${String(ex.date.m).padStart(2, '0')}` : dateAfterYears(years); age = ex.age ?? ageAtKey(I.birth, when); source = 'excel';
     } else {
       years = yearsToGoal({ goal, pv: I.pv, monthly: I.monthly, annual: I.annual }); when = dateAfterYears(years); age = ageAtKey(I.birth, when); source = 'app';
@@ -460,13 +462,13 @@ function questMap() {
   const leagues = [];
   for (let i = 0; i < nodes.length; i += 3) leagues.push(nodes.slice(i, i + 3).map((n, j) => ({ ...n, i: i + j })));
   const nodeH = 92;
-  const cow = S.whatIf || !S.data.settings.costOfWaiting.length
+  const cow = S.whatIf || !P_IS_NW || !S.data.settings.costOfWaiting.length
     ? costOfWaiting({ pv: I.pv, monthly: I.monthly, annual: I.annual, horizon: I.horizon })
     : S.data.settings.costOfWaiting.filter((r) => r.delay > 0);
-  const extra = S.whatIf || !S.data.settings.extraPerMonth.length
+  const extra = S.whatIf || !P_IS_NW || !S.data.settings.extraPerMonth.length
     ? [0, 100, 250, 500].map((e) => { const y = yearsToGoal({ goal: I.goal, pv: I.pv, monthly: I.monthly + e, annual: I.annual }); return { extra: e, contribution: I.monthly + e, years: y }; })
     : S.data.settings.extraPerMonth;
-  const rets = S.whatIf || !S.data.settings.returnScenarios.length
+  const rets = S.whatIf || !P_IS_NW || !S.data.settings.returnScenarios.length
     ? [0.05, 0.07, 0.1, 0.12].map((r) => ({ rate: r, years: yearsToGoal({ goal: I.goal, pv: I.pv, monthly: I.monthly, annual: r }) }))
     : S.data.settings.returnScenarios;
   const srcNote = S.whatIf ? 'What-if numbers, not saved' : 'From your Excel';
@@ -475,7 +477,7 @@ function questMap() {
       <span class="label">${next ? 'Next milestone' : 'Every milestone reached'}</span>
       ${next ? `<div class="hero">${esc(fmtEur(next.goal))}</div>
       <p>${next.when ? `~${esc(labelKey(next.when, 'long'))}${next.age != null ? `, at age ~${next.age}` : ''}` : 'Not reached with these numbers'} <span class="muted">(${esc(fmtYears(next.years))})</span></p>` : ''}
-      <p class="tiny">Invested today ${esc(fmtEur(I.pv))} (Trading212, Stake and Robinhood). Adding ${esc(fmtEur(I.monthly))} a month at ${esc(fmtPct(I.annual, 1))} a year. ${esc(srcNote)}.</p>
+      <p class="tiny">Net worth today ${esc(fmtEur(I.pv))}. Adding ${esc(fmtEur(I.monthly))} a month at ${esc(fmtPct(I.annual, 1))} a year. ${esc(srcNote)}.</p>
     </section>
     ${leagues.map((lg, li) => `<section class="panel league">
       <h3>League ${li + 1}: ${esc(fmtEurCompact(lg[0].goal))} to ${esc(fmtEurCompact(lg.at(-1).goal))}</h3>
@@ -593,7 +595,7 @@ function layerContent(kind, arg) {
           <p class="small">Every month in your file earns XP. Loading the same file twice never adds more.</p>
           <div class="list">
             <div class="li"><span class="grow">Each score point (0 to 6)</span><span class="val num">${XP.perScorePoint} XP</span></div>
-            <div class="li"><span class="grow">Your monthly change beats the S&P 500</span><span class="val num">+${XP.beatMarket} XP</span></div>
+            <div class="li"><span class="grow">Your investment return beats the S&P 500</span><span class="val num">+${XP.beatMarket} XP</span></div>
             <div class="li"><span class="grow">Savings rate at ${esc(fmtPct(th.savingsTarget, 0))} or more</span><span class="val num">+${XP.savingsTarget} XP</span></div>
             <div class="li"><span class="grow">Emergency fund at ${esc(fmtNumber(th.emergencyMonths, 0))} months or more</span><span class="val num">+${XP.emergencyReady} XP</span></div>
             <div class="li"><span class="grow">Each completed challenge</span><span class="val num">+${XP.challenge} XP</span></div>
@@ -619,8 +621,9 @@ function layerContent(kind, arg) {
     }
     case 'glossary':
       return { title: 'Words used in the app', body: `<section class="panel"><div class="list">${[
-        ['Net worth', 'Everything in your accounts added up. In the Excel it is the NW column.'],
-        ['Invested assets', 'Trading212, Stake and Robinhood together. The quest map tracks this.'],
+        ['Net worth', 'Everything in your accounts added up. In the Excel it is the NW column. The quest map tracks this.'],
+        ['Invested assets', 'Trading212, Stake and Robinhood together.'],
+        ['Investment return', 'How much your investments grew in a month without the money you added (the "→ Invest" value). This is what is compared with the S&P 500.'],
         ['Emergency fund', 'The NI T212 account, measured in months of average spending.'],
         ['Savings rate', 'The share of income you did not spend, from the Savings rate column.'],
         ['S&P 500', 'An index of 500 large US companies, used as the market to beat.'],
