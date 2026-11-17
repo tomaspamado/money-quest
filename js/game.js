@@ -46,8 +46,26 @@ function spendingOf(data, m) {
   return d ? d.total : null;
 }
 
+/**
+ * Investment return of each month, without the money you added (what the S&P 500 is compared with).
+ * Investments = Trading212 + Stake + Robinhood. Money added = the month's "→ Invest" in BASE.
+ * Modified Dietz: (end − start − added) / (start + added / 2), so money put in mid-month counts half.
+ * Null when the month before is missing, the start is zero or the month has no "→ Invest" value.
+ */
+export function addReturns(data) {
+  const ms = data.months, split = data.income?.split || {};
+  ms.forEach((m, i) => {
+    const prev = i > 0 ? ms[i - 1] : null, add = split[m.key]?.invest;
+    const ok = prev && monthDiff(prev.key, m.key) === 1 && prev.invested > 0 && m.invested != null && add != null;
+    m.ret = ok ? (m.invested - prev.invested - add) / (prev.invested + add / 2) : null;
+  });
+  return data;
+}
+const beats = (m) => m.ret != null && m.sp != null && m.ret > m.sp;
+
 /** Per-month facts used by XP, streaks and badges. */
 export function monthFacts(data) {
+  addReturns(data);
   const T = thresholds(data.settings);
   const months = data.months;
   return months.map((m, i) => {
@@ -65,7 +83,7 @@ export function monthFacts(data) {
     const f = {
       key: m.key,
       score: m.score,
-      beat: m.me != null && m.sp != null && m.me > m.sp,
+      beat: beats(m),
       savingsTarget: m.savingsRate != null && m.savingsRate >= T.savingsTarget,
       savingsOnePt: m.savingsRate != null && m.savingsRate >= T.savingsOnePt,
       emergencyReady: m.emergMonths != null && m.emergMonths >= T.emergencyMonths,
@@ -100,7 +118,7 @@ export function streaks(facts, T) {
   return [
     { id: 'saving', title: 'Saving', rule: `Savings rate at least ${fmtPct(T.savingsOnePt, 0)}`, ...streakOf(facts, (f) => f.savingsOnePt) },
     { id: 'score', title: 'Building or better', rule: `Score of ${T.buildingMin} or more out of 6`, ...streakOf(facts, (f) => f.building) },
-    { id: 'market', title: 'Beating the market', rule: 'Your monthly change beats the S&P 500', ...streakOf(facts, (f) => f.beat) },
+    { id: 'market', title: 'Beating the market', rule: 'Your investment return beats the S&P 500', ...streakOf(facts, (f) => f.beat) },
     { id: 'spend', title: 'Spending in check', rule: `Spending at or below your ${T.lookback}-month average`, ...streakOf(facts, (f) => f.spendOK) },
   ];
 }
@@ -123,10 +141,10 @@ export function badges(data, facts, T, ctx) {
   });
   const short = (amount) => (amount >= 1e6 ? `${amount / 1e6}M` : `${amount / 1000}k`);
   const questBadge = (amount) => ({
-    id: `quest-${short(amount)}`, icon: 'flag', title: `Quest: ${short(amount)} invested`,
-    condition: `Invested assets reach ${fmtEur(amount)}`,
-    unlockedKey: firstKey(facts, (f) => f.invested != null && f.invested >= amount),
-    progress: Math.min(1, (last.invested ?? 0) / amount), progressText: `${fmtEur(last.invested ?? 0)} of ${fmtEur(amount)}`,
+    id: `quest-${short(amount)}`, icon: 'flag', title: `Quest: ${short(amount)} net worth`,
+    condition: `Net worth reaches ${fmtEur(amount)}`,
+    unlockedKey: firstKey(facts, (f) => f.nw != null && f.nw >= amount),
+    progress: Math.min(1, (last.nw ?? 0) / amount), progressText: `${fmtEur(last.nw ?? 0)} of ${fmtEur(amount)}`,
   });
   const list = [
     { id: 'first-upload', icon: 'upload', title: 'First upload', condition: 'Load your Excel file once',
@@ -135,7 +153,7 @@ export function badges(data, facts, T, ctx) {
       unlockedKey: streakAt(3), progress: Math.min(1, bestStreak / 3), progressText: `Best streak ${bestStreak} of 3 months` },
     { id: 'streak-6', icon: 'flame', title: 'Half a year', condition: 'Any streak reaches 6 months',
       unlockedKey: streakAt(6), progress: Math.min(1, bestStreak / 6), progressText: `Best streak ${bestStreak} of 6 months` },
-    { id: 'beat-market', icon: 'trend', title: 'Beat the market', condition: 'A month where your change beats the S&P 500',
+    { id: 'beat-market', icon: 'trend', title: 'Beat the market', condition: 'A month where your investment return beats the S&P 500',
       unlockedKey: firstKey(facts, (f) => f.beat), progress: beats ? 1 : 0, progressText: `${beats} of 1 month` },
     { id: 'emergency-ready', icon: 'shield', title: 'Emergency ready', condition: `Emergency fund covers ${fmtMonths(T.emergencyMonths, 0)} of spending`,
       unlockedKey: firstKey(facts, (f) => f.emergencyReady),
@@ -153,7 +171,7 @@ export function badges(data, facts, T, ctx) {
     { id: 'comeback', icon: 'bolt', title: 'Comeback', condition: 'Score up 2 or more points on the month before',
       unlockedKey: firstKey(facts, (f) => f.comeback), progress: facts.some((f) => f.comeback) ? 1 : 0, progressText: 'Not yet' },
     // One badge for every milestone on the quest map. The starting line (10 000) is where the quest begins, so it has none.
-    ...milestoneGoals(data.dashboard?.milestones ?? [], paceFrom(data.settings?.projection)).filter((m) => m > LADDER_START).map(questBadge),
+    ...milestoneGoals(data.dashboard?.milestones ?? [], paceFrom(data.settings?.projection)).filter((m) => m > LADDER_START && ![5000, 10000, 25000].includes(m)).map(questBadge),   // 25k already has the net-worth club badge
     { id: 'challenger', icon: 'check', title: 'Challenger', condition: 'Complete 3 monthly challenges',
       unlockedDate: doneChallenges.length >= 3 ? doneChallenges[2].evaluatedAt : null,
       progress: Math.min(1, doneChallenges.length / 3), progressText: `${Math.min(doneChallenges.length, 3)} of 3 challenges` },
@@ -195,7 +213,7 @@ export function generateChallenges(data) {
     items.push({ id: 'emergency', type: 'emergency', target, title: `Emergency fund at ${fmtMonths(target, 0)}`,
       detail: `Now ${fmtMonths(latest.emergMonths)}; the target is ${fmtMonths(T.emergencyMonths, 0)}.` });
   } else {
-    items.push({ id: 'beat', type: 'beat', title: 'Beat the S&P 500', detail: 'Your monthly change beats the index.' });
+    items.push({ id: 'beat', type: 'beat', title: 'Beat the S&P 500', detail: 'Your investment return (without money added) beats the index.' });
   }
   if (items.length < 3) {
     const target = Math.min(6, Math.max(T.buildingMin, latest.score ?? 0));
@@ -212,7 +230,7 @@ export function evaluateItem(item, data, key) {
     case 'cat-under': if (s) { actual = s.byCat[item.cat] ?? 0; ok = actual <= item.target; } break;
     case 'savings': if (m && m.savingsRate != null) { actual = m.savingsRate; ok = actual >= item.target; } break;
     case 'emergency': if (m && m.emergMonths != null) { actual = m.emergMonths; ok = actual >= item.target; } break;
-    case 'beat': if (m && m.me != null && m.sp != null) { actual = m.me - m.sp; ok = m.me > m.sp; } break;
+    case 'beat': if (m) addReturns(data); if (m && m.ret != null && m.sp != null) { actual = m.ret - m.sp; ok = beats(m); } break;
     case 'score': if (m && m.score != null) { actual = m.score; ok = actual >= item.target; } break;
   }
   return { ...item, actual, status: ok == null ? 'no-data' : ok ? 'completed' : 'failed' };
