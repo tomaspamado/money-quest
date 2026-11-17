@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { serialToYMD, monthKey, addMonthsKey } from '../js/dates.js';
 import { parseWorkbook, parseLooseNumber } from '../js/parse.js';
 import { futureValue, yearsToGoal } from '../js/projection.js';
-import { levelFor, xpForLevel, applyUploadToChallenges, computeGame } from '../js/game.js';
+import { levelFor, xpForLevel, applyUploadToChallenges, computeGame, addReturns } from '../js/game.js';
 import { fmtEur, fmtPct } from '../js/format.js';
 
 // Load the vendored browser build of SheetJS.
@@ -35,7 +35,7 @@ const cases = [['9,5', 9.5], ['9.5', 9.5], ['9 500', 9500], ['9,5 km', 9.5], ['9
 for (const [s, v] of cases) ok(parseLooseNumber(s) === v, `parseLooseNumber(${s}) = ${parseLooseNumber(s)}, expected ${v}`);
 
 // --- format ---
-ok(fmtEur(12345) === '12\u00a0345\u00a0€', 'pt-PT money');
+ok(fmtEur(12345) === '12 345 €', 'pt-PT money');
 ok(fmtPct(0.095) === '9,5%', 'pt-PT percent');
 
 // --- projection math (Excel FV and NPER-style log formula) ---
@@ -83,7 +83,15 @@ ok(after.state.history.length === 1 && after.state.history[0].items.every((i) =>
 ok(after.state.active.forMonth === '2026-12', 'new challenges generated');
 const g = computeGame(next, { meta: { firstUploadAt: '2026-10-20T12:00:00' }, challenges: after.state });
 ok(g.xp.challengeXP === 75 * g.completed.length, 'challenge XP is 75 each');
-ok(g.badges.length >= 12 && g.badges.length <= 16, 'badge count in range');
+ok(g.badges.filter((b) => !b.id.startsWith('quest-')).length >= 12 && g.badges.filter((b) => !b.id.startsWith('quest-')).length <= 16, 'badge count in range (quest map badges counted apart)');
+ok(g.badges.filter((b) => b.id.startsWith('quest-')).every((b) => /net worth/i.test(b.condition)), 'quest badges follow net worth');
+
+// --- investment return without money added (compared with the S&P 500) ---
+const rd = { months: [{ key: '2026-01', invested: 1000 }, { key: '2026-02', invested: 1150, sp: 0.03 }, { key: '2026-04', invested: 1300, sp: 0.01 }],
+  income: { split: { '2026-02': { invest: 100 }, '2026-04': { invest: 100 } } } };
+addReturns(rd);
+ok(near(rd.months[1].ret, 50 / 1050), 'return leaves out the money added (Modified Dietz)');
+ok(rd.months[0].ret == null && rd.months[2].ret == null, 'no return for the first month or after a gap');
 
 console.log(`TZ=${process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
